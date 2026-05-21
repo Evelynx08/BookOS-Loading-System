@@ -19,7 +19,7 @@ Rectangle {
 
         Image {
             id: logo
-            source: "images/logo.svg"
+            source: "images/logo.png"
             sourceSize.width: Math.round(root.width * 0.28)
             sourceSize.height: Math.round(root.width * 0.28)
             width: sourceSize.width
