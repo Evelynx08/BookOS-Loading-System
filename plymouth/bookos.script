@@ -1,0 +1,63 @@
+// BookOS boot splash — centered logo + a soft pulsing dot + boot progress bar.
+// Dark background (#0a0a0d) matching BookOS dark identity.
+
+Window.SetBackgroundTopColor(0.039, 0.039, 0.051);
+Window.SetBackgroundBottomColor(0.039, 0.039, 0.051);
+
+sw = Window.GetWidth();
+sh = Window.GetHeight();
+cx = sw / 2;
+cy = sh / 2;
+
+// ── Logo (centered, slightly above middle) ──
+// El PNG es 1536x1024: a tamaño nativo ocupa la pantalla entera. Escalar
+// a ~22% de la altura de pantalla manteniendo el aspecto 3:2.
+logo.raw    = Image("logo.png");
+logo.h      = Window.GetHeight() * 0.22;
+logo.w      = logo.h * logo.raw.GetWidth() / logo.raw.GetHeight();
+logo.image  = logo.raw.Scale(logo.w, logo.h);
+logo.sprite = Sprite(logo.image);
+logo.sprite.SetX(cx - logo.image.GetWidth() / 2);
+logo.sprite.SetY(cy - logo.image.GetHeight() / 2 - 40);
+logo.sprite.SetOpacity(1);
+
+// ── Pulsing dot below the logo ──
+dot.image  = Image("dot.png");
+dot.sprite = Sprite(dot.image);
+dot_y = cy + 70;
+dot.sprite.SetX(cx - dot.image.GetWidth() / 2);
+dot.sprite.SetY(dot_y);
+
+progress = 0;
+fun refresh_cb() {
+    progress++;
+    // smooth pulse 0.25..1.0 via a sine on the frame counter
+    a = 0.25 + 0.75 * (0.5 + 0.5 * Math.Sin(progress / 9));
+    dot.sprite.SetOpacity(a);
+}
+Plymouth.SetRefreshFunction(refresh_cb);
+
+// ── Boot progress bar (thin, under the dot) ──
+bar.bg.image  = Image("bar-bg.png");
+bar.fg.image  = Image("bar-fg.png");
+bar.bg.sprite = Sprite(bar.bg.image);
+bar.fg.sprite = Sprite(bar.fg.image);
+bar_x = cx - bar.bg.image.GetWidth() / 2;
+bar_y = cy + 120;
+bar.bg.sprite.SetX(bar_x); bar.bg.sprite.SetY(bar_y);
+bar.fg.sprite.SetX(bar_x); bar.fg.sprite.SetY(bar_y);
+bar.fg.sprite.SetOpacity(1);
+
+fun progress_cb(duration, pct) {
+    w = bar.fg.image.GetWidth() * pct;
+    if (w < 1) w = 1;
+    cropped = bar.fg.image.Scale(w, bar.fg.image.GetHeight());
+    bar.fg.sprite.SetImage(cropped);
+}
+Plymouth.SetBootProgressFunction(progress_cb);
+
+// ── Password prompt (LUKS / disk unlock) ──
+fun display_password_cb(prompt, bullets) {
+    dot.sprite.SetOpacity(0);
+}
+Plymouth.SetDisplayPasswordFunction(display_password_cb);

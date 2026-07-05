@@ -20,10 +20,10 @@ Rectangle {
         Image {
             id: logo
             source: "images/logo.png"
+            fillMode: Image.PreserveAspectFit
             sourceSize.width: Math.round(root.width * 0.28)
-            sourceSize.height: Math.round(root.width * 0.28)
             width: sourceSize.width
-            height: sourceSize.height
+            height: Math.round(width * 1024 / 1536)
             smooth: true
             antialiasing: true
             mipmap: true
