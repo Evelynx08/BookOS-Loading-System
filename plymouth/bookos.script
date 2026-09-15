@@ -1,63 +1,272 @@
-// BookOS boot splash — centered logo + a soft pulsing dot + boot progress bar.
-// Dark background (#0a0a0d) matching BookOS dark identity.
+// BookOS — splash de arranque (plugin «script» de Plymouth 24).
+//
+// Logo por encima del centro y una barra fina debajo; en actualizaciones, una
+// línea de texto bajo la barra; al apagar, solo el logo. Las medidas vienen del
+// diseño a 1440×900 y van como fracción de `unit` para valer en cualquier panel.
+//
+// Cuenta con DeviceScale=1 en plymouthd.conf: con la escala 2 que Plymouth elige
+// por encima de 192 ppp, cada imagen se amplía al doble y se ve borrosa.
 
-Window.SetBackgroundTopColor(0.039, 0.039, 0.051);
-Window.SetBackgroundBottomColor(0.039, 0.039, 0.051);
+// Lo reescribe /usr/libexec/bookos-plymouth-language a partir de
+// /etc/locale.conf: el intérprete no tiene forma de leer el idioma del sistema.
+LANGUAGE = "es";
 
-sw = Window.GetWidth();
-sh = Window.GetHeight();
-cx = sw / 2;
-cy = sh / 2;
+if (LANGUAGE == "en") {
+    TXT_UPDATES = "Installing updates";
+    TXT_FIRMWARE = "Updating firmware";
+    TXT_RESET = "Resetting system";
+    TXT_PASSWORD = "Password";
+} else {
+    TXT_UPDATES = "Instalando actualizaciones";
+    TXT_FIRMWARE = "Actualizando el firmware";
+    TXT_RESET = "Restableciendo el sistema";
+    TXT_PASSWORD = "Contraseña";
+}
 
-// ── Logo (centered, slightly above middle) ──
-// El PNG es 1536x1024: a tamaño nativo ocupa la pantalla entera. Escalar
-// a ~22% de la altura de pantalla manteniendo el aspecto 3:2.
-logo.raw    = Image("logo.png");
-logo.h      = Window.GetHeight() * 0.22;
-logo.w      = logo.h * logo.raw.GetWidth() / logo.raw.GetHeight();
-logo.image  = logo.raw.Scale(logo.w, logo.h);
-logo.sprite = Sprite(logo.image);
-logo.sprite.SetX(cx - logo.image.GetWidth() / 2);
-logo.sprite.SetY(cy - logo.image.GetHeight() / 2 - 40);
-logo.sprite.SetOpacity(1);
+FPS = 50;
+Plymouth.SetRefreshRate(FPS);
 
-// ── Pulsing dot below the logo ──
-dot.image  = Image("dot.png");
-dot.sprite = Sprite(dot.image);
-dot_y = cy + 70;
-dot.sprite.SetX(cx - dot.image.GetWidth() / 2);
-dot.sprite.SetY(dot_y);
+Window.SetBackgroundTopColor(0, 0, 0);
+Window.SetBackgroundBottomColor(0, 0, 0);
 
-progress = 0;
-fun refresh_cb() {
-    progress++;
-    // smooth pulse 0.25..1.0 via a sine on the frame counter
-    a = 0.25 + 0.75 * (0.5 + 0.5 * Math.Sin(progress / 9));
-    dot.sprite.SetOpacity(a);
+screen_w = Window.GetWidth();
+screen_h = Window.GetHeight();
+mode = Plymouth.GetMode();
+
+// La referencia es la altura de un panel 16:10. En uno más estrecho (4:3,
+// vertical) manda el ancho, o la barra y el texto no cabrían.
+unit = Math.Min(screen_h, screen_w * 10 / 16);
+
+// Plymouth reduce sin promediar (ply_pixel_buffer_resize): cada imagen existe en
+// varios tamaños y se reduce desde el menor que no quede por debajo. Estas listas
+// tienen que coincidir con las de build-plymouth.py.
+fun pick_logo (size) {
+    if (size <= 160) return 160;
+    if (size <= 224) return 224;
+    if (size <= 320) return 320;
+    if (size <= 448) return 448;
+    return 640;
+}
+
+fun pick_cap (h) {
+    if (h <= 4) return 4;
+    if (h <= 8) return 8;
+    if (h <= 12) return 12;
+    return 16;
+}
+
+fun pick_bullet (d) {
+    if (d <= 8) return 8;
+    if (d <= 12) return 12;
+    if (d <= 16) return 16;
+    return 24;
+}
+
+fun ease_out (x) {
+    if (x <= 0) return 0;
+    if (x >= 1) return 1;
+    return 1 - (1 - x) * (1 - x) * (1 - x);
+}
+
+// ── Logo ───────────────────────────────────────────────────────────────────
+disc = Math.Int(unit * 0.1422);
+logo_cx = Math.Int(screen_w / 2);
+logo_cy = Math.Int(screen_h * 0.45);
+logo = Sprite(Image("logo-" + pick_logo(disc) + ".png").Scale(disc, disc));
+logo.SetPosition(logo_cx - Math.Int(disc / 2), logo_cy - Math.Int(disc / 2), 10);
+logo.SetOpacity(0);
+
+// ── Barra ──────────────────────────────────────────────────────────────────
+// Alto par: cada punta mide la mitad y el cuerpo empieza justo detrás.
+bar_h = 2 * Math.Int(unit * 0.00222 + 0.5);
+if (bar_h < 4) bar_h = 4;
+bar_w = Math.Int(unit * 0.2222);
+bar_x = logo_cx - Math.Int(bar_w / 2);
+bar_y = logo_cy + Math.Int(unit * 0.17);
+
+bar_cap = pick_cap(bar_h);
+bar_left_image = Image("bar-l-" + bar_cap + ".png").Scale(bar_h / 2, bar_h);
+bar_right_image = Image("bar-r-" + bar_cap + ".png").Scale(bar_h / 2, bar_h);
+bar_body_image = Image("bar-body.png");
+
+fun bar_opacity (b, a) {
+    b.left.SetOpacity(a);
+    b.body.SetOpacity(a);
+    b.right.SetOpacity(a);
+}
+
+fun bar_new (z) {
+    local.b.z = z;
+    local.b.left = Sprite(bar_left_image);
+    local.b.body = Sprite(bar_body_image.Scale(1, bar_h));
+    local.b.right = Sprite(bar_right_image);
+    bar_opacity(b, 0);
+    return b;
+}
+
+fun bar_place (b, w) {
+    b.left.SetPosition(bar_x, bar_y, b.z);
+    b.body.SetImage(bar_body_image.Scale(w - bar_h, bar_h));
+    b.body.SetPosition(bar_x + bar_h / 2, bar_y, b.z);
+    b.right.SetPosition(bar_x + w - bar_h / 2, bar_y, b.z);
+}
+
+// La pista es el gris #48484a de los tokens de BookOS: blanco al 28 % sobre negro.
+TRACK_OPACITY = 0.28;
+track = bar_new(30);
+bar_place(track, bar_w);
+fill = bar_new(31);
+bar_place(fill, bar_h + 1);
+
+// ── Texto ──────────────────────────────────────────────────────────────────
+// 13 px a 900 de alto. Pango mide en puntos a 96 ppp.
+text_px = unit * 0.0144;
+FONT = "Sans " + Math.Int(text_px * 72 / 96 + 0.5);
+text_y = bar_y + bar_h + Math.Int(unit * 0.02);
+
+fun put_text (slot, text, y) {
+    if (text == "") text = " ";
+    // #8e8e93, el gris secundario de BookOS.
+    local.img = Image.Text(text, 0.557, 0.557, 0.576, 1, FONT);
+    if (!slot.made) {
+        slot.sprite = Sprite(img);
+        slot.made = 1;
+    } else {
+        slot.sprite.SetImage(img);
+    }
+    slot.sprite.SetPosition(logo_cx - Math.Int(img.GetWidth() / 2), y, 40);
+    slot.sprite.SetOpacity(1);
+}
+
+fun hide_text (slot) {
+    if (slot.made) slot.sprite.SetOpacity(0);
+}
+
+slot_status.made = 0;
+slot_prompt.made = 0;
+slot_entry.made = 0;
+slot_message.made = 0;
+
+// ── Animación ──────────────────────────────────────────────────────────────
+update_mode = (mode == "updates" || mode == "system-upgrade" || mode == "firmware-upgrade" || mode == "system-reset");
+show_bar = (mode == "boot" || update_mode);
+
+status_title = TXT_UPDATES;
+if (mode == "firmware-upgrade") status_title = TXT_FIRMWARE;
+if (mode == "system-reset") status_title = TXT_RESET;
+
+tick = 0;
+boot_progress = 0;
+shown_progress = 0;
+shown_percent = -1;
+prompt_active = 0;
+
+fun refresh_cb () {
+    local.t = tick / FPS;
+    global.tick = tick + 1;
+
+    logo.SetOpacity(ease_out((t - 0.1) / 0.6));
+
+    local.bar_a = 0;
+    if (show_bar) bar_a = ease_out((t - 0.35) / 0.5);
+    if (prompt_active) bar_a = 0;
+
+    // Plymouth estima el progreso con los tiempos del arranque anterior y lo
+    // entrega a saltos; la barra lo persigue y nunca retrocede.
+    if (boot_progress > shown_progress)
+        global.shown_progress = shown_progress + (boot_progress - shown_progress) * 0.075;
+
+    bar_opacity(track, bar_a * TRACK_OPACITY);
+    local.w = Math.Int(bar_w * shown_progress);
+    if (bar_a > 0 && w > bar_h) {
+        bar_place(fill, w);
+        bar_opacity(fill, bar_a);
+    } else {
+        bar_opacity(fill, 0);
+    }
+
+    if (update_mode) {
+        local.pct = Math.Int(shown_progress * 100 + 0.5);
+        if (pct != shown_percent) {
+            global.shown_percent = pct;
+            put_text(slot_status, status_title + " · " + pct + " %", text_y);
+        }
+        slot_status.sprite.SetOpacity(bar_a);
+    }
 }
 Plymouth.SetRefreshFunction(refresh_cb);
 
-// ── Boot progress bar (thin, under the dot) ──
-bar.bg.image  = Image("bar-bg.png");
-bar.fg.image  = Image("bar-fg.png");
-bar.bg.sprite = Sprite(bar.bg.image);
-bar.fg.sprite = Sprite(bar.fg.image);
-bar_x = cx - bar.bg.image.GetWidth() / 2;
-bar_y = cy + 120;
-bar.bg.sprite.SetX(bar_x); bar.bg.sprite.SetY(bar_y);
-bar.fg.sprite.SetX(bar_x); bar.fg.sprite.SetY(bar_y);
-bar.fg.sprite.SetOpacity(1);
-
-fun progress_cb(duration, pct) {
-    w = bar.fg.image.GetWidth() * pct;
-    if (w < 1) w = 1;
-    cropped = bar.fg.image.Scale(w, bar.fg.image.GetHeight());
-    bar.fg.sprite.SetImage(cropped);
+fun boot_progress_cb (duration, progress) {
+    if (mode == "boot") global.boot_progress = progress;
 }
-Plymouth.SetBootProgressFunction(progress_cb);
+Plymouth.SetBootProgressFunction(boot_progress_cb);
 
-// ── Password prompt (LUKS / disk unlock) ──
-fun display_password_cb(prompt, bullets) {
-    dot.sprite.SetOpacity(0);
+fun system_update_cb (progress) {
+    global.boot_progress = progress / 100;
+}
+Plymouth.SetSystemUpdateFunction(system_update_cb);
+
+// ── Contraseña (LUKS), preguntas y mensajes ────────────────────────────────
+// En el hueco de la barra: el texto de la petición y, debajo, un punto por
+// carácter.
+prompt_y = bar_y - Math.Int(text_px);
+dots_y = prompt_y + Math.Int(text_px * 2.4);
+bullet_d = 2 * Math.Int(unit * 0.0039 + 0.5);
+bullet_step = Math.Int(bullet_d * 1.9);
+bullet_max = Math.Int(unit * 0.4 / bullet_step);
+bullet_image = Image("bullet-" + pick_bullet(bullet_d) + ".png").Scale(bullet_d, bullet_d);
+bullet_count = 0;
+
+fun set_bullets (n) {
+    if (n > bullet_max) n = bullet_max;
+    while (bullet_count < n) {
+        global.dots[bullet_count] = Sprite(bullet_image);
+        global.bullet_count = bullet_count + 1;
+    }
+    local.x0 = logo_cx - Math.Int((n * bullet_step - (bullet_step - bullet_d)) / 2);
+    local.i = 0;
+    while (i < bullet_count) {
+        if (i < n) {
+            dots[i].SetPosition(x0 + i * bullet_step, dots_y, 41);
+            dots[i].SetOpacity(1);
+        } else {
+            dots[i].SetOpacity(0);
+        }
+        i = i + 1;
+    }
+}
+
+fun display_password_cb (prompt_text, bullets) {
+    global.prompt_active = 1;
+    if (prompt_text == "") prompt_text = TXT_PASSWORD;
+    put_text(slot_prompt, prompt_text, prompt_y);
+    hide_text(slot_entry);
+    set_bullets(bullets);
 }
 Plymouth.SetDisplayPasswordFunction(display_password_cb);
+
+fun display_question_cb (prompt_text, entry_text) {
+    global.prompt_active = 1;
+    put_text(slot_prompt, prompt_text, prompt_y);
+    put_text(slot_entry, entry_text, dots_y);
+    set_bullets(0);
+}
+Plymouth.SetDisplayQuestionFunction(display_question_cb);
+
+fun display_normal_cb () {
+    global.prompt_active = 0;
+    hide_text(slot_prompt);
+    hide_text(slot_entry);
+    set_bullets(0);
+}
+Plymouth.SetDisplayNormalFunction(display_normal_cb);
+
+fun display_message_cb (text) {
+    put_text(slot_message, text, text_y + Math.Int(text_px * 2));
+}
+Plymouth.SetDisplayMessageFunction(display_message_cb);
+
+fun hide_message_cb (text) {
+    hide_text(slot_message);
+}
+Plymouth.SetHideMessageFunction(hide_message_cb);
