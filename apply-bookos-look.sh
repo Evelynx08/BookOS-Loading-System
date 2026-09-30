@@ -76,7 +76,7 @@ if [[ "$VARIANT" == "dark" ]]; then
     AURORAE="BookOS-App-Dark"
     COLOR_SCHEME="BookOSDark"
     KVANTUM="bookos-dark-blue"
-    GTK_THEME="BookOS-Dark"
+    GTK_THEME="BookOS-Dark-Blue"
     ICON_THEME="catppuccin-bookos-dark-blue-standard+default"
 else
     LNF="BookOS Light"
@@ -84,7 +84,7 @@ else
     AURORAE="BookOS-App-Light"
     COLOR_SCHEME="BookOSLight"
     KVANTUM="bookos-light-blue"
-    GTK_THEME="BookOS-Light"
+    GTK_THEME="BookOS-Light-Blue"
     ICON_THEME="catppuccin-bookos-light-blue-standard+default"
 fi
 
